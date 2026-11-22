@@ -1,15 +1,19 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "simplewow"
-version = "0.1.0"
-description = "Text-only chat client for WoW 3.3.5a servers (Python port of Aokromes/SimpleWoW)"
+version = "0.2.0"
+description = "Cross-platform WoW 3.3.5a GUI chat client"
+readme = "README.md"
 requires-python = ">=3.9"
+dependencies = [
+    "flet>=0.24.0",
+]
 
 [project.scripts]
 simplewow = "simplewow.__main__:main"
 
-[tool.setuptools]
-packages = ["simplewow"]
+[tool.setuptools.packages.find]
+include = ["simplewow*"]

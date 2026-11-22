@@ -1,3 +1,17 @@
+# Entornos y caché de Python
 __pycache__/
-*.log
+*.py[cod]
 *.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Logs y credenciales locales
+*.log
+*.env
+.env*
+accounts.json
+*.ini
+*.sqlite
+*.db

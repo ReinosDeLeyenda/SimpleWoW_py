@@ -1,40 +1,54 @@
-"""Entry point (port of CLIClient/Program.cs and its Settings defaults)."""
+"""Entry point (GUI-only cross-platform: Windows, Linux, macOS, Android)."""
 from __future__ import annotations
 
-import argparse
+import asyncio
 import os
 import sys
+import threading
+import flet as ft
 
-from .cli_ui import CommandLineUI
 from .definitions import LogLevel
 from .game import Game
+from .gui_ui import FletUI
+
+
+def start_app(page: ft.Page) -> None:
+    # Silenciar WinError 10022 conocido de asyncio ProactorEventLoop al cerrar Flet en Windows
+    if sys.platform == "win32":
+        loop = asyncio.get_running_loop()
+        default_handler = loop.get_exception_handler()
+
+        def ignore_winerror_10022(loop, context):
+            exc = context.get("exception")
+            if isinstance(exc, OSError) and getattr(exc, "winerror", None) == 10022:
+                return
+            if default_handler:
+                default_handler(loop, context)
+            else:
+                loop.default_exception_handler(context)
+
+        loop.set_exception_handler(ignore_winerror_10022)
+
+    ui = FletUI()
+    ui.attach_page(page)
+
+    def on_connect(hostname: str, port: int, username: str, password: str) -> None:
+        game = Game(
+            ui_class=lambda: ui,
+            hostname=hostname,
+            port=port,
+            username=username,
+            password=password,
+            log_level=LogLevel.Info,
+        )
+        threading.Thread(target=game.start, daemon=True).start()
+
+    ui.on_connect_callback = on_connect
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(prog="simplewow", description="Text-only WoW 3.3.5a chat client")
-    parser.add_argument("--hostname", default="localhost", help="realm server host (default: localhost)")
-    parser.add_argument("--port", type=int, default=3724, help="realm server port (default: 3724)")
-    parser.add_argument("--username", default="admin", help="account name (default: admin)")
-    parser.add_argument(
-        "--password",
-        default=os.environ.get("SIMPLEWOW_PASSWORD", "admin"),
-        help="account password (default: $SIMPLEWOW_PASSWORD, else 'admin')",
-    )
-    parser.add_argument(
-        "--log-level", default="Info", choices=[level.name for level in LogLevel],
-        type=lambda s: s.capitalize(), help="Debug, Detail, Warning, Info or Error (default: Info)",
-    )
-    args = parser.parse_args(argv)
-
-    for stream in (sys.stdout, sys.stdin):
-        if hasattr(stream, "reconfigure"):
-            stream.reconfigure(encoding="utf-8")
-
-    game = Game(
-        CommandLineUI, args.hostname, args.port, args.username, args.password, LogLevel[args.log_level]
-    )
-    game.start()
-    return 0
+    ft.run(start_app)
+    os._exit(0)
 
 
 if __name__ == "__main__":
