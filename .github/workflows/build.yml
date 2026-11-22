@@ -10,27 +10,73 @@ permissions:
 
 jobs:
   # ------------------------------------------------------------------
-  # 1. COMPILAR ESCRITORIO (Windows, Linux, macOS)
+  # 1. DETECTAR Y ACTUALIZAR VERSIÓN SI EL COMMIT DICE "version x.xx"
+  # ------------------------------------------------------------------
+  prepare-version:
+    runs-on: ubuntu-latest
+    outputs:
+      has_version: ${{ steps.ver.outputs.has_version }}
+      version: ${{ steps.ver.outputs.version }}
+      tag: ${{ steps.ver.outputs.tag }}
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extraer e incrementar versión
+        id: ver
+        run: |
+          MSG="${{ github.event.head_commit.message }}"
+          VERSION=$(echo "$MSG" | grep -oiE 'version [0-9]+\.[0-9]+(\.[0-9]+)?' | awk '{print $2}' | head -n 1)
+
+          if [ -z "$VERSION" ]; then
+            echo "has_version=false" >> $GITHUB_OUTPUT
+            echo "Commit sin etiqueta 'version x.xx'. Solo se compilarán artefactos."
+            exit 0
+          fi
+
+          echo "has_version=true" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+
+          # Actualizar __version__ en simplewow/__init__.py y version en pyproject.toml
+          sed -i "s/__version__ = .*/__version__ = \"$VERSION\"/" simplewow/__init__.py
+          if [ -f pyproject.toml ]; then
+            sed -i "s/^version = .*/version = \"$VERSION\"/" pyproject.toml
+          fi
+
+          # Guardar el cambio de versión en el repositorio sin disparar otro build ([skip ci])
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@://github.com"
+          git add simplewow/__init__.py pyproject.toml
+          git diff --cached --quiet || git commit -m "chore: bump version to $VERSION [skip ci]"
+          git push
+
+  # ------------------------------------------------------------------
+  # 2. COMPILAR ESCRITORIO (Windows, Linux, macOS)
   # ------------------------------------------------------------------
   build-desktop:
+    needs: prepare-version
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: windows-latest
             artifact_name: SimpleWoW-Chat-Windows.exe
-            output_file: dist/SimpleWoW-Chat.exe
+            is_mac: false
           - os: ubuntu-latest
             artifact_name: SimpleWoW-Chat-Linux
-            output_file: dist/SimpleWoW-Chat
+            is_mac: false
           - os: macos-latest
-            artifact_name: SimpleWoW-Chat-macOS
-            output_file: dist/SimpleWoW-Chat
+            artifact_name: SimpleWoW-Chat-macOS.zip
+            is_mac: true
 
     runs-on: ${{ matrix.os }}
 
     steps:
-      - name: Checkout código
+      - name: Checkout código actualizado
         uses: actions/checkout@v4
 
       - name: Configurar Python
@@ -50,9 +96,21 @@ jobs:
       - name: Empaquetar aplicación
         run: python -m PyInstaller --noconfirm --onefile --windowed --name "SimpleWoW-Chat" --collect-all flet --collect-all flet_desktop main.py
 
-      - name: Renombrar ejecutable
+      - name: Preparar archivo final (Windows/Linux)
+        if: matrix.is_mac == false
         shell: bash
-        run: mv "${{ matrix.output_file }}" "${{ matrix.artifact_name }}"
+        run: |
+          if [ -f "dist/SimpleWoW-Chat.exe" ]; then
+            mv "dist/SimpleWoW-Chat.exe" "${{ matrix.artifact_name }}"
+          else
+            mv "dist/SimpleWoW-Chat" "${{ matrix.artifact_name }}"
+          fi
+
+      - name: Comprimir bundle .app (macOS)
+        if: matrix.is_mac == true
+        run: |
+          cd dist
+          zip -r "../${{ matrix.artifact_name }}" "SimpleWoW-Chat.app"
 
       - name: Subir artefacto de escritorio
         uses: actions/upload-artifact@v4
@@ -61,13 +119,14 @@ jobs:
           path: ${{ matrix.artifact_name }}
 
   # ------------------------------------------------------------------
-  # 2. COMPILAR ANDROID (APK)
+  # 3. COMPILAR ANDROID (APK)
   # ------------------------------------------------------------------
   build-android:
+    needs: prepare-version
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout código
+      - name: Checkout código actualizado
         uses: actions/checkout@v4
 
       - name: Configurar Python
@@ -97,27 +156,14 @@ jobs:
           path: SimpleWoW-Chat-Android.apk
 
   # ------------------------------------------------------------------
-  # 3. CREAR RELEASE AUTOMÁTICA SI EL COMMIT DICE "version x.xx"
+  # 4. PUBLICAR GITHUB RELEASE SI SE DETECTÓ "version x.xx"
   # ------------------------------------------------------------------
   release:
-    needs: [build-desktop, build-android]
+    needs: [prepare-version, build-desktop, build-android]
+    if: needs.prepare-version.outputs.has_version == 'true'
     runs-on: ubuntu-latest
-    # Solo se ejecuta si el mensaje del commit contiene "version X.XX" (insensible a mayúsculas)
-    if: contains(github.event.head_commit.message, 'version ') || contains(github.event.head_commit.message, 'Version ')
 
     steps:
-      - name: Extraer número de versión del commit
-        id: get_version
-        run: |
-          MSG="${{ github.event.head_commit.message }}"
-          VERSION=$(echo "$MSG" | grep -oiE 'version [0-9]+\.[0-9]+(\.[0-9]+)?' | awk '{print $2}' | head -n 1)
-          if [ -z "$VERSION" ]; then
-            echo "No se encontró formato version x.xx"
-            exit 1
-          fi
-          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
       - name: Descargar todos los binarios compilados
         uses: actions/download-artifact@v4
         with:
@@ -127,10 +173,10 @@ jobs:
       - name: Publicar GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.get_version.outputs.tag }}
-          name: "SimpleWoW Chat v${{ steps.get_version.outputs.version }}"
+          tag_name: ${{ needs.prepare-version.outputs.tag }}
+          name: "SimpleWoW Chat v${{ needs.prepare-version.outputs.version }}"
           body: |
-            ## SimpleWoW Chat v${{ steps.get_version.outputs.version }}
+            ## SimpleWoW Chat v${{ needs.prepare-version.outputs.version }}
             
             Cliente de chat multiplataforma para **Reinos de Leyenda (WoW 3.3.5a)**.
             
@@ -138,5 +184,5 @@ jobs:
             - **Windows**: `SimpleWoW-Chat-Windows.exe`
             - **Android**: `SimpleWoW-Chat-Android.apk`
             - **Linux**: `SimpleWoW-Chat-Linux`
-            - **macOS**: `SimpleWoW-Chat-macOS`
+            - **macOS**: `SimpleWoW-Chat-macOS.zip`
           files: release-files/*
