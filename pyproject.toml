@@ -5,15 +5,22 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "simplewow"
 version = "0.2.0"
-description = "Cross-platform WoW 3.3.5a GUI chat client"
+description = "SimpleWoW Chat - Reinos de Leyenda"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 dependencies = [
-    "flet>=0.24.0",
+    "flet>=0.80.0",
 ]
 
-[project.scripts]
-simplewow = "simplewow.__main__:main"
+[tool.flet]
+org = "org.reinosdeleyenda"
+product = "SimpleWoW Chat"
+company = "Reinos de Leyenda"
+copyright = "Copyright (C) 2026 Reinos de Leyenda"
 
-[tool.setuptools.packages.find]
-include = ["simplewow*"]
+[tool.flet.android]
+package = "org.reinosdeleyenda.simplewow"
+permissions = [
+    "android.permission.INTERNET",
+    "android.permission.ACCESS_NETWORK_STATE",
+]
