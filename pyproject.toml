@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "simplewow"
+version = "0.1.0"
+description = "Text-only chat client for WoW 3.3.5a servers (Python port of Aokromes/SimpleWoW)"
+requires-python = ">=3.9"
+
+[project.scripts]
+simplewow = "simplewow.__main__:main"
+
+[tool.setuptools]
+packages = ["simplewow"]
