@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "simplewow"
-version = "0.25"
+version = "0.26"
 description = "SimpleWoW Chat - Reinos de Leyenda"
 readme = "README.md"
 requires-python = ">=3.11"

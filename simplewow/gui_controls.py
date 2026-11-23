@@ -28,13 +28,13 @@ class GUIControlsMixin:
                 controls=[
                     ft.Icon(ft.Icons.SYSTEM_UPDATE_ALT, color=ICE_BORDER, size=20),
                     self.update_banner_text,
-                    ft.Button(
-                        content="Descargar",
-                        bgcolor=ICE_BTN_BG,
-                        color=ICE_PRIMARY,
-                        height=32,
-                        on_click=self._on_download_update_click,
-                    ),
+#                    ft.Button(
+#                        content="Descargar",
+#                        bgcolor=ICE_BTN_BG,
+#                        color=ICE_PRIMARY,
+#                        height=32,
+#                        on_click=self._on_download_update_click,
+#                    ),
                 ],
             ),
         )
