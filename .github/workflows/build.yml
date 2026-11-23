@@ -150,7 +150,14 @@ jobs:
         run: python -m flet.cli build apk --arch arm64-v8a --arch armeabi-v7a --yes
 
       - name: Renombrar APK
-        run: mv build/apk/app-release.apk SimpleWoW-Chat-Android.apk
+        run: |
+          APK_PATH=$(find build -name "*.apk" | head -n 1)
+          if [ -z "$APK_PATH" ]; then
+            echo "Error: No se encontró ningún archivo .apk en build/"
+            exit 1
+          fi
+          echo "APK encontrado en: $APK_PATH"
+          mv "$APK_PATH" SimpleWoW-Chat-Android.apk
 
       - name: Subir artefacto Android
         uses: actions/upload-artifact@v4
