@@ -3,4 +3,4 @@
 Python port of Aokromes/SimpleWoW (C#), itself based on faramir118/MangosClient.
 """
 
-__version__ = "0.22"
+__version__ = "0.23"
