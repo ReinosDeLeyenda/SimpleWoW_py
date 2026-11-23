@@ -10,9 +10,9 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 APP_NAME = "SimpleWoWChat"
-CONFIG_DIR = Path.home() / ".simplewow"
+_storage_env = os.environ.get("FLET_APP_STORAGE_DATA")
+CONFIG_DIR = Path(_storage_env) if _storage_env else (Path.home() / ".simplewow")
 ACCOUNTS_FILE = CONFIG_DIR / "accounts.json"
-
 
 # ==============================================================================
 # CIFRADO NATIVO WINDOWS (DPAPI - CryptProtectData / CryptUnprotectData)
