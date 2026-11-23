@@ -140,11 +140,14 @@ jobs:
           distribution: "temurin"
           java-version: "17"
 
+      - name: Aceptar licencias Android SDK
+        run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+
       - name: Instalar Flet
         run: pip install flet
 
-      - name: Compilar APK Android
-        run: python -m flet.cli build apk --yes
+      - name: Compilar APK Android (ARM64 + ARMv7)
+        run: python -m flet.cli build apk --arch arm64-v8a --arch armeabi-v7a --yes
 
       - name: Renombrar APK
         run: mv build/apk/app-release.apk SimpleWoW-Chat-Android.apk
