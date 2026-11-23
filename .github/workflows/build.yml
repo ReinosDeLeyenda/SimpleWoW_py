@@ -10,12 +10,12 @@ permissions:
 
 jobs:
   # ------------------------------------------------------------------
-  # 1. DETECTAR Y ACTUALIZAR VERSIÓN SI EL COMMIT DICE "version x.xx"
+  # 1. DETECTAR NUEVA VERSIÓN DIRECTAMENTE DEL CÓDIGO (SIN COMMIT FANTASMA)
   # ------------------------------------------------------------------
   prepare-version:
     runs-on: ubuntu-latest
     outputs:
-      has_version: ${{ steps.ver.outputs.has_version }}
+      should_release: ${{ steps.ver.outputs.should_release }}
       version: ${{ steps.ver.outputs.version }}
       tag: ${{ steps.ver.outputs.tag }}
 
@@ -25,34 +25,35 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Extraer e incrementar versión
+      - name: Comprobar si la versión es nueva
         id: ver
         run: |
-          MSG="${{ github.event.head_commit.message }}"
-          VERSION=$(echo "$MSG" | grep -oiE 'version [0-9]+\.[0-9]+(\.[0-9]+)?' | awk '{print $2}' | head -n 1)
+          # Extrae __version__ de simplewow/__init__.py
+          VERSION=$(grep -oE '__version__\s*=\s*["'\''][0-9]+\.[0-9]+(\.[0-9]+)?["'\'']' simplewow/__init__.py | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -n 1)
+
+          # Si no está en __init__.py, intenta leerla de pyproject.toml
+          if [ -z "$VERSION" ] && [ -f pyproject.toml ]; then
+            VERSION=$(grep -oE '^version\s*=\s*["'\''][0-9]+\.[0-9]+(\.[0-9]+)?["'\'']' pyproject.toml | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -n 1)
+          fi
 
           if [ -z "$VERSION" ]; then
-            echo "has_version=false" >> $GITHUB_OUTPUT
-            echo "Commit sin etiqueta 'version x.xx'. Solo se compilarán artefactos."
+            echo "No se encontró versión válida. Solo se compilarán artefactos."
+            echo "should_release=false" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          echo "has_version=true" >> $GITHUB_OUTPUT
+          TAG="v$VERSION"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
 
-          # Actualizar __version__ en simplewow/__init__.py y version en pyproject.toml
-          sed -i "s/__version__ = .*/__version__ = \"$VERSION\"/" simplewow/__init__.py
-          if [ -f pyproject.toml ]; then
-            sed -i "s/^version = .*/version = \"$VERSION\"/" pyproject.toml
+          # Comprueba si el tag ya existe en GitHub
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "El tag $TAG ya existe. Se compilarán artefactos sin crear Release."
+            echo "should_release=false" >> $GITHUB_OUTPUT
+          else
+            echo "¡Nueva versión $TAG detectada! Se publicará Release."
+            echo "should_release=true" >> $GITHUB_OUTPUT
           fi
-
-          # Guardar el cambio de versión en el repositorio sin disparar otro build ([skip ci])
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@://github.com"
-          git add simplewow/__init__.py pyproject.toml
-          git diff --cached --quiet || git commit -m "chore: bump version to $VERSION [skip ci]"
-          git push
 
   # ------------------------------------------------------------------
   # 2. COMPILAR ESCRITORIO (Windows, Linux, macOS)
@@ -76,7 +77,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - name: Checkout código actualizado
+      - name: Checkout código
         uses: actions/checkout@v4
 
       - name: Configurar Python
@@ -119,14 +120,14 @@ jobs:
           path: ${{ matrix.artifact_name }}
 
   # ------------------------------------------------------------------
-  # 3. COMPILAR ANDROID (APK)
+  # 3. COMPILAR Y FIRMAR ANDROID (APK)
   # ------------------------------------------------------------------
   build-android:
     needs: prepare-version
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout código actualizado
+      - name: Checkout código
         uses: actions/checkout@v4
 
       - name: Configurar Python
@@ -149,15 +150,44 @@ jobs:
       - name: Compilar APK Android (ARM64 + ARMv7)
         run: python -m flet.cli build apk --arch arm64-v8a --arch armeabi-v7a --yes
 
-      - name: Renombrar APK
+      - name: Firmar APK con esquema v1+v2+v3
         run: |
           APK_PATH=$(find build -name "*.apk" | head -n 1)
           if [ -z "$APK_PATH" ]; then
             echo "Error: No se encontró ningún archivo .apk en build/"
             exit 1
           fi
-          echo "APK encontrado en: $APK_PATH"
-          mv "$APK_PATH" SimpleWoW-Chat-Android.apk
+
+          # Usa el keystore de Secrets si existe, o genera uno automático
+          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > release.jks
+            KS_PASS="${{ secrets.KEYSTORE_PASSWORD }}"
+            KEY_ALIAS="${{ secrets.KEY_ALIAS }}"
+            KEY_PASS="${{ secrets.KEY_PASSWORD }}"
+          else
+            keytool -genkey -v \
+              -keystore release.jks \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -alias upload \
+              -storepass simplewow123 -keypass simplewow123 \
+              -dname "CN=SimpleWoW, OU=Dev, O=ReinosDeLeyenda, L=Madrid, S=Madrid, C=ES"
+            KS_PASS="simplewow123"
+            KEY_ALIAS="upload"
+            KEY_PASS="simplewow123"
+          fi
+
+          # Localizar zipalign y apksigner en el Android SDK del runner
+          BUILD_TOOLS=$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -mindepth 1 | sort -V | tail -n 1)
+          "$BUILD_TOOLS/zipalign" -v -p 4 "$APK_PATH" aligned.apk
+          "$BUILD_TOOLS/apksigner" sign \
+            --ks release.jks \
+            --ks-pass "pass:$KS_PASS" \
+            --ks-key-alias "$KEY_ALIAS" \
+            --key-pass "pass:$KEY_PASS" \
+            --out SimpleWoW-Chat-Android.apk \
+            aligned.apk
+
+          "$BUILD_TOOLS/apksigner" verify SimpleWoW-Chat-Android.apk
 
       - name: Subir artefacto Android
         uses: actions/upload-artifact@v4
@@ -166,11 +196,11 @@ jobs:
           path: SimpleWoW-Chat-Android.apk
 
   # ------------------------------------------------------------------
-  # 4. PUBLICAR GITHUB RELEASE SI SE DETECTÓ "version x.xx"
+  # 4. PUBLICAR GITHUB RELEASE SI LA VERSIÓN ES NUEVA
   # ------------------------------------------------------------------
   release:
     needs: [prepare-version, build-desktop, build-android]
-    if: needs.prepare-version.outputs.has_version == 'true'
+    if: needs.prepare-version.outputs.should_release == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -188,7 +218,7 @@ jobs:
           body: |
             ## SimpleWoW Chat v${{ needs.prepare-version.outputs.version }}
             
-            Cliente de chat multiplataforma para **Reinos de Leyenda (WoW 3.3.5a)**.
+            ${{ github.event.head_commit.message }}
             
             ### Descargas disponibles:
             - **Windows**: `SimpleWoW-Chat-Windows.exe`

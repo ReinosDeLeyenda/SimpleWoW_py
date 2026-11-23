@@ -6,6 +6,7 @@ dist/
 build/
 .venv/
 venv/
+releases.py
 
 # Logs y credenciales locales
 *.log
@@ -15,3 +16,4 @@ accounts.json
 *.ini
 *.sqlite
 *.db
+*.jks
