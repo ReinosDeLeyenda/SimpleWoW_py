@@ -131,7 +131,11 @@ class AuthSocket:
     def connect(self) -> bool:
         self._ui.log("Connecting to realmlist... ")
         try:
-            self._sock = socket.create_connection((self.hostname, self.port), timeout=15)
+            addr_info = socket.getaddrinfo(self.hostname, self.port, socket.AF_INET, socket.SOCK_STREAM)
+            self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self._sock.settimeout(15)
+            self._sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            self._sock.connect(addr_info[0][4])
             self._sock.settimeout(None)
         except OSError as ex:
             self._ui.log_line(f"failed. ({ex})", LogLevel.Error)
